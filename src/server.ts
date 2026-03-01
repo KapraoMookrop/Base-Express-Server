@@ -8,6 +8,14 @@ async function start() {
   app.listen(ENV.PORT, () => {
     console.log(`Server running on port ${ENV.PORT}`);
   });
+
+  app.use((err: any, req: any, res: any, next: any) => {
+    res.status(err.status || 500).json({
+      status: "error",
+      message: err.message || "Internal Server Error"
+    });
+  });
+  
 }
 
 start();
