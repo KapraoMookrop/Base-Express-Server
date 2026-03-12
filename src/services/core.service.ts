@@ -215,29 +215,6 @@ export async function VerifyEmail(token: string) {
     await pool.query(`UPDATE ct.users SET status = '${UserStatus.ACTIVE}', verify_token = null, verify_token_expire = null WHERE id = $1`, [user.id]);
 }
 
-export async function Enable2FA(userId: string, email: string) {
-
-    console.log("Enabling 2FA for user:", userId, email);
-    const secret = speakeasy.generateSecret({
-        length: 20,
-        name: "SafeTrade:" + email
-    });
-
-    console.log("Secret for 2FA:", secret.base32);
-
-    const qr = await QRCode.toDataURL(secret.otpauth_url as string);
-
-    await pool.query(
-        `UPDATE ct.users SET twofa_secret = $1 WHERE id = $2`,
-        [secret.base32, userId]
-    );
-
-    return {
-        qr,
-        secret: secret.base32
-    };
-}
-
 export async function Verify2FA(email: string, token: string, type: Verify2FAType) {
     console.log("Verifying 2FA for user:", email, "with token:", token, "and type:", type);
     const sqlSelect = await pool.query(
@@ -273,6 +250,29 @@ export async function Verify2FA(email: string, token: string, type: Verify2FATyp
     } else {
         throw new AppError("ประเภทการยืนยัน 2FA ไม่ถูกต้อง", 400);
     }
+}
+
+export async function Enable2FA(userId: string, email: string) {
+
+    console.log("Enabling 2FA for user:", userId, email);
+    const secret = speakeasy.generateSecret({
+        length: 20,
+        name: "SafeTrade:" + email
+    });
+
+    console.log("Secret for 2FA:", secret.base32);
+
+    const qr = await QRCode.toDataURL(secret.otpauth_url as string);
+
+    await pool.query(
+        `UPDATE ct.users SET twofa_secret = $1 WHERE id = $2`,
+        [secret.base32, userId]
+    );
+
+    return {
+        qr,
+        secret: secret.base32
+    };
 }
 
 export async function Disable2FA(userId: string) {
