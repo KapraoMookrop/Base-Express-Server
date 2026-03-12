@@ -209,7 +209,8 @@ export async function VerifyEmail(token: string) {
     const user = result.rows[0];
     const now = new Date();
     if (user.verify_token_expire < now) {
-        throw new AppError("ลิงก์ยืนยันอีเมลหมดอายุแล้ว", 400);
+        await pool.query("DELETE FROM ct.users WHERE id = $1", [user.id]);
+        throw new AppError("ลิงก์ยืนยันอีเมลหมดอายุแล้ว กรุณาสมัครสมาชิกใหม่", 400);
     }
 
     await pool.query(`UPDATE ct.users SET status = '${UserStatus.ACTIVE}', verify_token = null, verify_token_expire = null WHERE id = $1`, [user.id]);
