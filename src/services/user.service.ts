@@ -2,7 +2,7 @@ import pool from "../config/database.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { type SignUpDataRequest } from "../module/SignUpDataRequest.js";
-import { UserRole, KycStatus, UserStatus, SellerVerificationStatus } from "../module/Enum.js";
+import { UserRole, UserStatus } from "../module/Enum.js";
 import type { UUID } from "node:crypto";
 import { ENV } from "../config/env.js";
 import { type LoginResponseData } from "../module/LoginResponseData.js";
@@ -24,8 +24,8 @@ export async function SignUp(signUpDataRequest: SignUpDataRequest): Promise<UUID
   const hashedPassword = await bcrypt.hashSync(Password, 10);
 
   const result = await pool.query(
-    "INSERT INTO ct.users (full_name, email, password_hash, phone, role, kyc_status, status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
-    [FullName, Email, hashedPassword, Phone, Role, KycStatus.PENDING, UserStatus.ACTIVE]
+    "INSERT INTO ct.users (full_name, email, password_hash, phone, role, status) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    [FullName, Email, hashedPassword, Phone, Role, UserStatus.ACTIVE]
   );
 
   return result.rows[0].id;
@@ -34,7 +34,7 @@ export async function SignUp(signUpDataRequest: SignUpDataRequest): Promise<UUID
 export async function Login(email: string, password: string): Promise<LoginResponseData> {
   console.log(`Attempting login for email: ${email} - ${password}`);
   const result = await pool.query(
-    "SELECT id, email, full_name, password_hash, phone, role, kyc_status, status FROM ct.users WHERE email = $1",
+    "SELECT id, email, full_name, password_hash, phone, role, status FROM ct.users WHERE email = $1",
     [email]
   );
 
@@ -62,9 +62,9 @@ export async function Login(email: string, password: string): Promise<LoginRespo
     Email: user.email,
     Phone: user.phone,
     Role: user.role,
-    KycStatus: user.kyc_status,
     UserStatus: user.status,
     JWT: token,
+    IsEnabled2FA: user.twofa_enabled,
   };
 
   return loginResponseData;

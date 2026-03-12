@@ -1,0 +1,312 @@
+import pool from "../config/database.js";
+import { AppError } from "../errors/AppError.js";
+import { UserStatus, Verify2FAType } from "../module/Enum.js";
+import type { LoginResponseData } from "../module/LoginResponseData.js";
+import jwt from "jsonwebtoken";
+import nodemailer from "nodemailer";
+import QRCode from "qrcode";
+import speakeasy from "speakeasy";
+import { ENV } from "../config/env.js";
+
+export async function SendVerifyEmail(email: string, token: string) {
+    const sqlCoreMailPassword = await pool.query(
+        "select * from ct.configuration where code = 'CoreMailPassword'"
+    );
+    const CoreMailPassword = sqlCoreMailPassword.rows[0].value;
+
+    const sqlCoreMailUser = await pool.query(
+        "select * from ct.configuration where code = 'CoreMailUser'"
+    );
+    const CoreMailUser = sqlCoreMailUser.rows[0].value;
+
+    const transporter = nodemailer.createTransport({
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false,
+        auth: {
+            user: CoreMailUser,
+            pass: CoreMailPassword
+        }
+    });
+
+    const verification_link = `https://safe-trade-client.vercel.app/verify-email/${token}`;
+
+    await transporter.sendMail({
+        from: `"Support Safe Trade" <${CoreMailUser}>`,
+        to: email,
+        subject: "ยืนยันอีเมลของคุณ",
+        html: `
+      <!DOCTYPE html>
+      <html lang="th">
+      <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>ยืนยันอีเมลของคุณ - CompTraders</title>
+          <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+          <style>
+              /* Reset สำหรับ Email Client */
+              body {
+                  margin: 0;
+                  padding: 0;
+                  background-color: #f9fafb;
+                  font-family: 'Kanit', Helvetica, Arial, sans-serif;
+                  -webkit-font-smoothing: antialiased;
+              }
+              table {
+                  border-spacing: 0;
+                  width: 100%;
+              }
+              td {
+                  padding: 0;
+              }
+              img {
+                  border: 0;
+              }
+
+              /* Container หลัก */
+              .wrapper {
+                  width: 100%;
+                  table-layout: fixed;
+                  background-color: #f9fafb;
+                  padding-bottom: 40px;
+              }
+
+              .main-content {
+                  background-color: #ffffff;
+                  margin: 0 auto;
+                  width: 100%;
+                  max-width: 600px;
+                  border-spacing: 0;
+                  color: #28312a;
+                  border-radius: 32px;
+                  overflow: hidden;
+                  margin-top: 40px;
+                  box-shadow: 0 10px 25px rgba(5, 150, 105, 0.05);
+              }
+
+              /* Header พื้นที่สีเขียว */
+              .header {
+                  background-color: #059669;
+                  padding: 40px 20px;
+                  text-align: center;
+                  color: #ffffff;
+              }
+
+              .logo {
+                  font-size: 28px;
+                  font-weight: 700;
+                  letter-spacing: -1px;
+                  margin: 0;
+              }
+
+              /* Body ของอีเมล */
+              .body-section {
+                  padding: 40px 30px;
+                  text-align: center;
+              }
+
+              .welcome-text {
+                  font-size: 24px;
+                  font-weight: 600;
+                  margin-bottom: 16px;
+                  color: #059669;
+              }
+
+              .description {
+                  font-size: 16px;
+                  color: #4b5563;
+                  line-height: 1.6;
+                  margin-bottom: 32px;
+              }
+
+              /* ปุ่มยืนยัน */
+              .btn-container {
+                  margin-bottom: 32px;
+              }
+
+              .btn {
+                  background-color: #059669;
+                  color: #ffffff !important;
+                  padding: 16px 40px;
+                  text-decoration: none;
+                  font-size: 18px;
+                  font-weight: 600;
+                  border-radius: 20px;
+                  display: inline-block;
+                  transition: background-color 0.3s ease;
+              }
+
+              /* Footer */
+              .footer {
+                  padding: 20px;
+                  text-align: center;
+                  font-size: 12px;
+                  color: #9ca3af;
+              }
+
+              .footer a {
+                  color: #059669;
+                  text-decoration: none;
+              }
+
+              .security-note {
+                  background-color: #f3f4f6;
+                  padding: 15px;
+                  border-radius: 16px;
+                  font-size: 13px;
+                  color: #6b7280;
+                  margin-top: 20px;
+              }
+          </style>
+      </head>
+      <body>
+          <div class="wrapper">
+              <table class="main-content">
+                  <tr>
+                      <td class="header">
+                          <h1 class="logo">SafeTrade</h1>
+                          <p style="margin: 10px 0 0; opacity: 0.8; font-weight: 300;">Safe & Secure Computer Marketplace</p>
+                      </td>
+                  </tr>
+                  <tr>
+                      <td class="body-section">
+                          <h2 class="welcome-text">ยืนยันที่อยู่อีเมลของคุณ</h2>
+                          <p class="description">
+                              ขอบคุณที่ร่วมเป็นส่วนหนึ่งกับ SafeTrade!<br>
+                              อีกเพียงขั้นตอนเดียวเท่านั้น เพื่อเริ่มการซื้อขายที่ปลอดภัย<br>
+                              โปรดคลิกที่ปุ่มด้านล่างเพื่อยืนยันอีเมลของคุณ
+                          </p>
+
+                          <div class="btn-container">
+                              <!-- เปลี่ยน URL เป็นลิงก์จริงของระบบคุณ -->
+                              <a href="${verification_link}" class="btn">ยืนยันอีเมลของฉัน</a>
+                          </div>
+
+                          <p style="font-size: 14px; color: #9ca3af;">
+                              หากปุ่มด้านบนใช้งานไม่ได้ โปรดคัดลอกลิงก์ด้านล่างไปวางในเบราว์เซอร์ของคุณ:<br>
+                              <a href="${verification_link}" style="color: #059669; word-break: break-all;">${verification_link}</a>
+                          </p>
+
+                          <div class="security-note">
+                              <strong>ข้อควรระวัง:</strong> หากคุณไม่ได้เป็นผู้สร้างบัญชีนี้ 
+                              โปรดเพิกเฉยต่ออีเมลฉบับนี้ หรือติดต่อฝ่ายสนับสนุนหากมีข้อสงสัย
+                          </div>
+                      </td>
+                  </tr>
+              </table>
+          </div>
+      </body>
+      </html>`
+    });
+}
+
+export async function VerifyEmail(token: string) {
+    const result = await pool.query("SELECT id, verify_token_expire FROM ct.users WHERE verify_token = $1", [token]);
+    if (result.rows.length === 0) {
+        throw new AppError("ลิงก์ยืนยันอีเมลไม่ถูกต้อง", 400);
+    }
+
+    const user = result.rows[0];
+    const now = new Date();
+    if (user.verify_token_expire < now) {
+        throw new AppError("ลิงก์ยืนยันอีเมลหมดอายุแล้ว", 400);
+    }
+
+    await pool.query(`UPDATE ct.users SET status = '${UserStatus.ACTIVE}', verify_token = null, verify_token_expire = null WHERE id = $1`, [user.id]);
+}
+
+export async function Enable2FA(userId: string, email: string) {
+
+    console.log("Enabling 2FA for user:", userId, email);
+    const secret = speakeasy.generateSecret({
+        length: 20,
+        name: "SafeTrade:" + email
+    });
+
+    console.log("Secret for 2FA:", secret.base32);
+
+    const qr = await QRCode.toDataURL(secret.otpauth_url as string);
+
+    await pool.query(
+        `UPDATE ct.users SET twofa_secret = $1 WHERE id = $2`,
+        [secret.base32, userId]
+    );
+
+    return {
+        qr,
+        secret: secret.base32
+    };
+}
+
+export async function Verify2FA(email: string, token: string, type: Verify2FAType) {
+    console.log("Verifying 2FA for user:", email, "with token:", token, "and type:", type);
+    const sqlSelect = await pool.query(
+        `SELECT id, email, full_name, password_hash, phone, role, kyc_status, status, twofa_enabled, twofa_secret FROM ct.users WHERE email = $1`,
+        [email]
+    );
+
+    if (sqlSelect.rows.length === 0) {
+        throw new AppError("ไม่พบผู้ใช้งาน", 404);
+    }
+
+    const user = sqlSelect.rows[0];
+
+    const verified = speakeasy.totp.verify({
+        secret: user.twofa_secret,
+        encoding: "base32",
+        token: token,
+        window: 1
+    });
+
+    if (!verified) {
+        throw new AppError("รหัส 2FA ไม่ถูกต้อง", 401);
+    }
+
+    if (type === Verify2FAType.VERIFYENABLE) {
+        await pool.query(
+            `UPDATE ct.users SET twofa_enabled = true WHERE id = $1`,
+            [user.id]
+        );
+    } else if (type === Verify2FAType.VERIFYLOGIN) {
+        const loginResponseData = await SignJWT(user);
+        return loginResponseData;
+    } else {
+        throw new AppError("ประเภทการยืนยัน 2FA ไม่ถูกต้อง", 400);
+    }
+}
+
+export async function Disable2FA(userId: string) {
+    await pool.query(
+        `UPDATE ct.users SET twofa_enabled = false, twofa_secret = null WHERE id = $1`,
+        [userId]
+    );
+}
+
+export async function SignJWT(user: any) {
+    const token = jwt.sign(
+        {
+            userId: user.id,
+            fullName: user.full_name,
+            email: user.email,
+            role: user.role,
+            phone: user.phone,
+            kycStatus: user.kyc_status,
+            userStatus: user.status,
+            isEnabled2FA: user.twofa_enabled,
+        },
+        ENV.JWT_SECRET,
+        { expiresIn: "1d" }
+    );
+
+    const loginResponseData: LoginResponseData = {
+        FullName: user.full_name,
+        Email: user.email,
+        Phone: user.phone,
+        Role: user.role,
+        UserStatus: user.status,
+        JWT: token,
+        IsEnabled2FA: user.twofa_enabled,
+    };
+
+    return loginResponseData;
+}
