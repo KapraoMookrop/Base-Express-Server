@@ -10,12 +10,12 @@ import { ENV } from "../config/env.js";
 
 export async function SendVerifyEmail(email: string, token: string) {
     const sqlCoreMailPassword = await pool.query(
-        "select * from ct.configuration where code = 'CoreMailPassword'"
+        "select * from b.configuration where code = 'CoreMailPassword'"
     );
     const CoreMailPassword = sqlCoreMailPassword.rows[0].value;
 
     const sqlCoreMailUser = await pool.query(
-        "select * from ct.configuration where code = 'CoreMailUser'"
+        "select * from b.configuration where code = 'CoreMailUser'"
     );
     const CoreMailUser = sqlCoreMailUser.rows[0].value;
 
@@ -201,7 +201,7 @@ export async function SendVerifyEmail(email: string, token: string) {
 }
 
 export async function VerifyEmail(token: string) {
-    const result = await pool.query("SELECT id, verify_token_expire FROM ct.users WHERE verify_token = $1", [token]);
+    const result = await pool.query("SELECT id, verify_token_expire FROM b.users WHERE verify_token = $1", [token]);
     if (result.rows.length === 0) {
         throw new AppError("ลิงก์ยืนยันอีเมลไม่ถูกต้อง", 400);
     }
@@ -209,17 +209,29 @@ export async function VerifyEmail(token: string) {
     const user = result.rows[0];
     const now = new Date();
     if (user.verify_token_expire < now) {
-        await pool.query("DELETE FROM ct.users WHERE id = $1", [user.id]);
+        await pool.query("DELETE FROM b.users WHERE id = $1", [user.id]);
         throw new AppError("ลิงก์ยืนยันอีเมลหมดอายุแล้ว กรุณาสมัครสมาชิกใหม่", 400);
     }
 
-    await pool.query(`UPDATE ct.users SET status = '${UserStatus.ACTIVE}', verify_token = null, verify_token_expire = null WHERE id = $1`, [user.id]);
+    await pool.query(`UPDATE b.users SET status = '${UserStatus.ACTIVE}', verify_token = null, verify_token_expire = null WHERE id = $1`, [user.id]);
 }
 
 export async function Verify2FA(email: string, token: string, type: Verify2FAType) {
     console.log("Verifying 2FA for user:", email, "with token:", token, "and type:", type);
     const sqlSelect = await pool.query(
-        `SELECT id, email, full_name, password_hash, phone, role, kyc_status, status, twofa_enabled, twofa_secret FROM ct.users WHERE email = $1`,
+        `SELECT 
+            u.id, 
+            u.email, 
+            u.password_hash,
+            u.role, 
+            u.status, 
+            u.twofa_enabled, 
+            u.twofa_secret,
+            ui.name,
+            ui.surname,
+            ui.phone_number
+        FROM b.users u LEFT JOIN b.user_info ui ON u.id = ui.user_id
+        WHERE u.email = $1`,
         [email]
     );
 
@@ -242,7 +254,7 @@ export async function Verify2FA(email: string, token: string, type: Verify2FATyp
 
     if (type === Verify2FAType.VERIFYENABLE) {
         await pool.query(
-            `UPDATE ct.users SET twofa_enabled = true WHERE id = $1`,
+            `UPDATE b.users SET twofa_enabled = true WHERE id = $1`,
             [user.id]
         );
     } else if (type === Verify2FAType.VERIFYLOGIN) {
@@ -266,7 +278,7 @@ export async function Enable2FA(userId: string, email: string) {
     const qr = await QRCode.toDataURL(secret.otpauth_url as string);
 
     await pool.query(
-        `UPDATE ct.users SET twofa_secret = $1 WHERE id = $2`,
+        `UPDATE b.users SET twofa_secret = $1 WHERE id = $2`,
         [secret.base32, userId]
     );
 
@@ -278,7 +290,7 @@ export async function Enable2FA(userId: string, email: string) {
 
 export async function Disable2FA(userId: string) {
     await pool.query(
-        `UPDATE ct.users SET twofa_enabled = false, twofa_secret = null WHERE id = $1`,
+        `UPDATE b.users SET twofa_enabled = false, twofa_secret = null WHERE id = $1`,
         [userId]
     );
 }
@@ -287,26 +299,27 @@ export async function SignJWT(user: any) {
     const token = jwt.sign(
         {
             userId: user.id,
-            fullName: user.full_name,
             email: user.email,
             role: user.role,
-            phone: user.phone,
-            kycStatus: user.kyc_status,
             userStatus: user.status,
             isEnabled2FA: user.twofa_enabled,
+            name: user.name,
+            surname: user.surname,
+            phone_number: user.phone_number,
         },
         ENV.JWT_SECRET,
         { expiresIn: "1d" }
     );
 
     const loginResponseData: LoginResponseData = {
-        FullName: user.full_name,
         Email: user.email,
-        Phone: user.phone,
         Role: user.role,
         UserStatus: user.status,
         JWT: token,
         IsEnabled2FA: user.twofa_enabled,
+        Name: user.name,
+        SurName: user.surname,
+        Phone: user.phone_number,
     };
 
     return loginResponseData;

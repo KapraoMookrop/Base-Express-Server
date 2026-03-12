@@ -1,7 +1,8 @@
 import { UserRole, UserStatus } from "./Enum.js";
 
 export interface LoginResponseData {
-    FullName: string;
+    Name: string;
+    SurName: string;
     Email: string;
     Phone: string;
     Role: UserRole;

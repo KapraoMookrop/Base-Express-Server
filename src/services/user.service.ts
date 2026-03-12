@@ -9,36 +9,73 @@ import { AppError } from "../errors/AppError.js";
 import * as Core from "./core.service.js";
 
 export async function SignUp(request: SignUpDataRequest): Promise<UUID> {
-  const { FullName, Email, Password, Phone } = request;
+  const { Name, SurName, Email, Password, Phone } = request;
+  const client = await pool.connect();
 
-  const existingPhone = await pool.query("SELECT id FROM ct.users WHERE phone = $1", [Phone]);
-  if (existingPhone.rows.length > 0) {
-    throw new AppError("เบอร์โทรศัพท์นี้ถูกลงทะเบียนกับระบบแล้ว", 409);
-  }
+  try {
+    await client.query("BEGIN");
 
-  const existingEmail = await pool.query("SELECT id FROM ct.users WHERE email = $1", [Email]);
-  if (existingEmail.rows.length > 0) {
-    throw new AppError("อีเมลนี้ถูกลงทะเบียนกับระบบแล้ว", 409);
-  }
+    const existingEmail = await client.query(
+      "SELECT id FROM b.users WHERE email = $1",
+      [Email]
+    );
 
-  const hashedPassword = await bcrypt.hash(Password, 10);
+    if (existingEmail.rows.length > 0) {
+      throw new AppError("อีเมลนี้ถูกลงทะเบียนกับระบบแล้ว", 409);
+    }
 
-  const insertUserResult = await pool.query(
-    `INSERT INTO ct.users 
-      (full_name, email, password_hash, phone, role, status) 
-    VALUES ($1, $2, $3, $4, $5, $6) 
+    const hashedPassword = await bcrypt.hash(Password, 10);
+
+    const insertUserResult = await client.query(
+      `INSERT INTO b.users 
+        (email, password_hash, role, status) 
+      VALUES ($1, $2, $3, $4) 
       RETURNING id, verify_token`,
-    [FullName, Email, hashedPassword, Phone, UserRole.BUYER, UserStatus.PENDING_VERIFICATION]
-  );
+      [Email, hashedPassword, UserRole.ADMIN, UserStatus.PENDING_VERIFICATION]
+    );
 
-  await Core.SendVerifyEmail(Email, insertUserResult.rows[0].verify_token);
+    await client.query(
+      `INSERT INTO b.user_info 
+        (user_id, name, surname, phone_number) 
+      VALUES ($1, $2, $3, $4)`,
+      [
+        insertUserResult.rows[0].id,
+        Name,
+        SurName,
+        Phone
+      ]
+    );
 
-  return insertUserResult.rows[0].id;
+    await Core.SendVerifyEmail(Email, insertUserResult.rows[0].verify_token);
+
+    await client.query("COMMIT");
+
+    return insertUserResult.rows[0].id;
+
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function Login(email: string, password: string): Promise<LoginResponseData> {
   const result = await pool.query(
-    "SELECT id, email, full_name, password_hash, phone, role, status, twofa_enabled, twofa_secret FROM ct.users WHERE email = $1",
+    `SELECT 
+      u.id, 
+      u.email, 
+      u.password_hash, 
+      u.role, 
+      u.status, 
+      u.twofa_enabled, 
+      u.twofa_secret,
+      ui.name,
+      ui.surname,
+      ui.phone_number
+    FROM b.users u 
+      LEFT JOIN b.user_info ui ON u.id = ui.user_id
+    WHERE u.email = $1`,
     [email]
   );
 
@@ -47,7 +84,6 @@ export async function Login(email: string, password: string): Promise<LoginRespo
   }
 
   const user = result.rows[0];
-
 
   if (user.status === UserStatus.PENDING_VERIFICATION) {
     throw new AppError("บัญชีของคุณกำลังรอการยืนยันตัวตน กรุณาเช็คอีเมลที่ได้ลงทะเบียนไว้กับระบบ", 403);
