@@ -5,6 +5,7 @@ import type { LoginResponseData } from "../module/LoginResponseData.js";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
 import QRCode from "qrcode";
+import bcrypt from "bcrypt";
 import speakeasy from "speakeasy";
 import { ENV } from "../config/env.js";
 import fs from "fs";
@@ -59,7 +60,7 @@ export async function SendVerifyEmail(email: string, token: string) {
                     โปรดเพิกเฉยต่ออีเมลฉบับนี้ หรือติดต่อฝ่ายสนับสนุนหากมีข้อสงสัย
                 </div>`
     }
-    var html = GetMailTemplate("verify-email", replacements);
+    var html = GetMailTemplate("vemail-notify", replacements);
 
     await transporter.sendMail({
         from: `"Support Safe Trade" <${CoreMailUser}>`,
@@ -192,6 +193,70 @@ export async function SignJWT(user: any) {
     };
 
     return loginResponseData;
+}
+
+export async function SendForgotPasswordEmail(email: string) {
+    const setTokenResult = await pool.query(
+        "UPDATE ct.users SET verify_token = gen_random_uuid(), verify_token_expire = NOW() + INTERVAL '1 hour' WHERE email = $1 RETURNING verify_token",
+        [email]
+    );
+
+    const sqlCoreMailPassword = await pool.query(
+        "select * from ct.configuration where code = 'CoreMailPassword'"
+    );
+    const CoreMailPassword = sqlCoreMailPassword.rows[0].value;
+    const sqlCoreMailUser = await pool.query(
+        "select * from ct.configuration where code = 'CoreMailUser'"
+    );
+    const CoreMailUser = sqlCoreMailUser.rows[0].value;
+
+    const transporter = nodemailer.createTransport({
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false,
+        auth: {
+            user: CoreMailUser,
+            pass: CoreMailPassword
+        }
+    });
+
+    const verification_link = `${ENV.CLIENT_URL}/change-password/${setTokenResult.rows[0].verify_token}`;
+    const replacements: MailTemplateReplacements = {
+        header: `<h1 class="logo">SafeTrade</h1>
+                <p style="margin: 10px 0 0; opacity: 0.8; font-weight: 300;">Safe & Secure Computer Marketplace</p>`,
+        description: `<h2 class="welcome-text">เราได้รับคำขอเปลี่ยนรหัสผ่านจากคุณ</h2>
+                      <p class="description">
+                        หากคุณไม่ได้ทำการขอเปลี่ยนรหัสผ่านนี้</br>
+                        กรุณาอย่าคลิกที่ปุ่มด้านล่างและแจ้งให้เราทราบทันทีเพื่อความปลอดภัยของบัญชีคุณ
+                      </p>`,
+        body: `<div class="btn-container">
+                    <a href="${verification_link}" class="btn">เปลี่ยนรหัสผ่าน</a>
+                </div>
+                <p style="font-size: 14px; color: #9ca3af;">
+                    หากปุ่มด้านบนใช้งานไม่ได้ โปรดคัดลอกลิงก์ด้านล่างไปวางในเบราว์เซอร์ของคุณ:<br>
+                    <a href="${verification_link}"
+                        style="color: #059669; word-break: break-all;">${verification_link}</a>
+                </p>`
+    }
+
+    var html = GetMailTemplate("email-notify", replacements);
+    await transporter.sendMail({
+        from: `"Support Safe Trade" <${CoreMailUser}>`,
+        to: email,
+        subject: "คำขอเปลี่ยนรหัสผ่าน",
+        html: html
+    });
+}
+
+export async function ChangePassword(token: string, newPassword: string) {
+    const result = await pool.query("SELECT id, verify_token_expire FROM ct.users WHERE verify_token = $1", [token]);
+    if (result.rows.length === 0) {
+        throw new AppError("ลิงก์เปลี่ยนรหัสผ่านไม่ถูกต้อง", 400);
+    }
+
+    const userId = result.rows[0].id;
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await pool.query("UPDATE ct.users SET password_hash = $1, verify_token = NULL, verify_token_expire = NULL WHERE id = $2", [hashedPassword, userId]);
 }
 
 function GetMailTemplate(templateName: string, replacements: MailTemplateReplacements) {
